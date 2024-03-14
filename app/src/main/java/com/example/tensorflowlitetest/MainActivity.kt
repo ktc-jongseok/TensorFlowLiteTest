@@ -3,7 +3,6 @@ package com.example.tensorflowlitetest
 import android.content.Context
 import android.content.res.AssetManager
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
@@ -14,8 +13,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -38,19 +35,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import coil.compose.rememberImagePainter
 import coil.request.ImageRequest
 import com.example.tensorflowlitetest.ui.theme.TensorFlowLiteTestTheme
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.support.common.ops.NormalizeOp
 import org.tensorflow.lite.support.image.ImageProcessor
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.support.image.ops.ResizeOp
-import org.tensorflow.lite.support.image.ops.ResizeWithCropOrPadOp
 import java.io.FileInputStream
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 import kotlin.math.sqrt
 
@@ -62,50 +55,50 @@ class MainActivity : ComponentActivity() {
         setContent {
             TensorFlowLiteTestTheme {
                 // A surface container using the 'background' color from the theme
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    tflite = Interpreter(loadModelFile(applicationContext.assets, "ml_data.tflite"))
-                    tflite?.let {
-                        ImageComparisonScreen(it)
-                    }
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    ImageComparisonScreen()
                 }
             }
         }
     }
 }
 
-fun resizeImage(bitmap: Bitmap, reqWidth: Int, reqHeight: Int): Bitmap? {
+fun resizeImage(bitmap: Bitmap, reqWidth: Int, reqHeight: Int): Bitmap {
     val aspectRatio: Float = bitmap.width.toFloat() / bitmap.height.toFloat()
     var finalWidth = reqWidth
     var finalHeight = reqHeight
 
-    // 비율을 유지하면서 크기 조정
+    // 比率を維持しながらサイズを調整
     if (bitmap.width > bitmap.height) {
-        // 가로가 세로보다 길 경우
+        // 縦より横が長い場合
         finalHeight = (finalWidth / aspectRatio).toInt()
     } else {
-        // 세로가 가로보다 길 경우
+        // 縦が横より長い場合
         finalWidth = (finalHeight * aspectRatio).toInt()
     }
 
-    // 이미지 리사이징
+    // イメージリサイジング
     return Bitmap.createScaledBitmap(bitmap, finalWidth, finalHeight, true)
 }
 
 fun preprocessImage(bitmap: Bitmap): TensorImage {
-    // TensorImage 초기화 및 로드
+    // TensorImage初期化およびロード
     val tensorImage = TensorImage(DataType.FLOAT32)
     tensorImage.load(bitmap)
 
-    // 이미지 전처리를 위한 ImageProcessor 구성
+    // 画像前処理のためのImageProcessor構成
     val imageProcessor = ImageProcessor.Builder()
         .add(ResizeOp(224, 224, ResizeOp.ResizeMethod.BILINEAR)) // 예: 224x224로 리사이즈
         .build()
 
-    // 전처리된 이미지 반환
+    // 前処理された画像の返却
     return imageProcessor.process(tensorImage)
 }
 
-// 모델 파일 로드
+// Tensorモデル·ファイル·ロード
 fun loadModelFile(assetManager: AssetManager, modelPath: String): ByteBuffer {
     val fileDescriptor = assetManager.openFd(modelPath)
     val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
@@ -115,18 +108,17 @@ fun loadModelFile(assetManager: AssetManager, modelPath: String): ByteBuffer {
     return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
 }
 
-// 특징 추출
+// 特徴抽出
 fun extractFeatures(tensorImage: TensorImage, tflite: Interpreter): FloatArray {
-    // 출력을 위한 버퍼 준비
+    // 出力のためのバッファ準備
     val output = Array(1) { FloatArray(1001) } // MobileNetV3의 출력 크기에 따라 조정
-    // 이미지 예측
     tflite.run(tensorImage.buffer, output)
 
     return output[0]
 }
 
 private fun calculateCosineSimilarity(vectorA: FloatArray, vectorB: FloatArray): Float {
-    // 코사인 유사도 계산
+    // コサイン類似度計算
     var dotProduct = 0f
     var normA = 0f
     var normB = 0f
@@ -135,37 +127,41 @@ private fun calculateCosineSimilarity(vectorA: FloatArray, vectorB: FloatArray):
         normA += vectorA[i] * vectorA[i]
         normB += vectorB[i] * vectorB[i]
     }
-    Log.d("Calculate","Cos sim A : $normA ,  sim B : $normB")
+    Log.d("Calculate", "Cos sim A : $normA ,  sim B : $normB")
     return dotProduct / (sqrt(normA.toDouble()) * sqrt(normB.toDouble())).toFloat()
 }
 
 @Composable
-fun ImageComparisonScreen(interpreter: Interpreter) {
+fun ImageComparisonScreen() {
     val context = LocalContext.current
     var imageUri1 by remember { mutableStateOf<Uri?>(null) }
     var imageUri2 by remember { mutableStateOf<Uri?>(null) }
     var resultText by remember { mutableStateOf<String?>(null) }
+    val tflite = Interpreter(loadModelFile(context.assets, "ml_data.tflite"))
 
-    // 이미지 선택 결과 처리를 위한 런처
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        // imageUri1 또는 imageUri2에 URI 할당하는 로직 필요
-        if (imageUri1 == null) {
-            imageUri1 = uri
-        } else if (imageUri2 == null) {
-            imageUri2 = uri
-            // 이미지 두 장이 모두 선택되면 유사도 계산 함수 호출
-            imageUri1?.let { uri1 ->
-                imageUri2?.let { uri2 ->
-                    val featureVector1 = extractFeatures(preprocessImage(uri1.toBitmap(context)), interpreter)
-                    val featureVector2 = extractFeatures(preprocessImage(uri2.toBitmap(context)), interpreter)
+    // 画像選択結果処理のためのランチャー
+    val launcher =
+        rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+            if (imageUri1 == null) {
+                imageUri1 = uri
+            } else if (imageUri2 == null) {
+                imageUri2 = uri
+                // 2枚の画像を選択すると、類似度計算関数を呼び出す
+                imageUri1?.let { uri1 ->
+                    imageUri2?.let { uri2 ->
+                        val featureVector1 =
+                            extractFeatures(preprocessImage(uri1.toBitmap(context)), tflite)
+                        val featureVector2 =
+                            extractFeatures(preprocessImage(uri2.toBitmap(context)), tflite)
 
-                    calculateCosineSimilarity(featureVector1, featureVector2).toPercentage().let {
-                        resultText = it.toString()
+                        calculateCosineSimilarity(featureVector1, featureVector2).toPercentage()
+                            .let {
+                                resultText = it.toString()
+                            }
                     }
                 }
             }
         }
-    }
 
     LazyColumn(modifier = Modifier.padding(16.dp)) {
         item {
